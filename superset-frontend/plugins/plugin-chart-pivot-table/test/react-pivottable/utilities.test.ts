@@ -659,3 +659,69 @@ test('value sorting keeps a sort key for rows whose mixed-metric total renders b
   expect(pivotData.getAggregator(['blue'], []).value()).toBeNull();
   expect(pivotData.getRowKeys()).toEqual([['red'], ['blue']]);
 });
+
+test('value sorting under a result aggregation keeps a sort key for rows whose mixed-metric total renders blank', () => {
+  const leaves = [
+    { color: 'blue', Metric: 'm1', value: 100, __metricKey: 'Metric' },
+    { color: 'blue', Metric: 'm2', value: 250, __metricKey: 'Metric' },
+    { color: 'red', Metric: 'm1', value: 10, __metricKey: 'Metric' },
+    { color: 'red', Metric: 'm2', value: 50, __metricKey: 'Metric' },
+  ] as unknown as PivotRecord[];
+  const pivotData = new PivotData(
+    {
+      data: leaves,
+      rows: ['color'],
+      cols: ['Metric'],
+      vals: ['value'],
+      aggregateFunction: 'Sum',
+      rowOrder: 'value_a_to_z',
+    },
+    {},
+  );
+
+  expect(pivotData.getAggregator(['blue'], []).value()).toBeNull();
+  expect(pivotData.getRowKeys()).toEqual([['red'], ['blue']]);
+});
+
+test('single-metric "% of Columns" and "% of Rows" still fill the Total column and Total row', () => {
+  const leaves = [
+    { color: 'blue', Metric: 'm1', value: 10, __metricKey: 'Metric' },
+    { color: 'red', Metric: 'm1', value: 30, __metricKey: 'Metric' },
+  ] as unknown as PivotRecord[];
+  const byColumn = new PivotData({
+    data: leaves,
+    rows: ['color'],
+    cols: ['Metric'],
+    vals: ['value'],
+    aggregateFunction: 'Sum as Fraction of Columns',
+  });
+  expect(byColumn.getAggregator(['blue'], []).value()).toBeCloseTo(0.25, 5);
+  expect(byColumn.getAggregator(['red'], []).value()).toBeCloseTo(0.75, 5);
+
+  const byRow = new PivotData({
+    data: leaves.map(r => ({ ...r })),
+    rows: ['Metric'],
+    cols: ['color'],
+    vals: ['value'],
+    aggregateFunction: 'Sum as Fraction of Rows',
+  });
+  expect(byRow.getAggregator([], ['blue']).value()).toBeCloseTo(0.25, 5);
+  expect(byRow.getAggregator([], ['red']).value()).toBeCloseTo(0.75, 5);
+});
+
+test('"Sum as Fraction of Total" keeps an all-null scope blank while other scopes ignore null inputs', () => {
+  const leaves = [
+    { color: 'blue', Metric: 'm1', value: null, __metricKey: 'Metric' },
+    { color: 'red', Metric: 'm1', value: 30, __metricKey: 'Metric' },
+  ] as unknown as PivotRecord[];
+  const pivotData = new PivotData({
+    data: leaves,
+    rows: ['color'],
+    cols: ['Metric'],
+    vals: ['value'],
+    aggregateFunction: 'Sum as Fraction of Total',
+  });
+
+  expect(pivotData.getAggregator(['blue'], ['m1']).value()).toBeNull();
+  expect(pivotData.getAggregator(['red'], ['m1']).value()).toBeCloseTo(1, 5);
+});

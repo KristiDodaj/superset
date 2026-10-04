@@ -398,6 +398,13 @@ const usFmtPct = numberFormat({
   suffix: '%',
 });
 
+// A Sum aggregator whose every input was a SQL NULL: its `value()` is 0, but
+// the scope has no measured value, so fractions built on it stay blank.
+const isAllNullScope = (agg: {
+  sawNull?: boolean;
+  sawValue?: boolean;
+}): boolean => agg.sawNull === true && agg.sawValue !== true;
+
 const fmtNonString =
   (formatter: Formatter) =>
   (x: string | number | null): string => {
@@ -546,6 +553,10 @@ const baseAggregatorTemplates = {
       return function () {
         return {
           sum: 0 as any,
+          // Tracks whether every pushed value was a SQL NULL, so a fraction
+          // aggregator can keep an all-null scope blank instead of 0.
+          sawNull: false,
+          sawValue: false,
           currencySet: new Set<string>(),
           push(record: PivotRecord) {
             const val = record[attr];
@@ -556,6 +567,7 @@ const baseAggregatorTemplates = {
             // silently poisons the running sum -- skip it entirely, the same
             // way a group with no matching leaf record at all is excluded.
             if (val === null || val === undefined) {
+              this.sawNull = true;
               if (
                 record.__currencyColumn &&
                 record[record.__currencyColumn as string]
@@ -566,6 +578,7 @@ const baseAggregatorTemplates = {
               }
               return;
             }
+            this.sawValue = true;
             if (Number.isNaN(Number(val))) {
               this.sum = val;
             } else {
@@ -973,14 +986,14 @@ const baseAggregatorTemplates = {
             let denominatorAggregator: any;
             if (metricSubstituted === 'col') {
               denominatorAggregator =
-                type === 'total'
+                selRow.length === 0
                   ? data.colMetricTotals[this.metricAxis!.value]
                   : data.rowGroupMetricTotals[flatKey(selRow)]?.[
                       this.metricAxis!.value
                     ];
             } else if (metricSubstituted === 'row') {
               denominatorAggregator =
-                type === 'total'
+                selCol.length === 0
                   ? data.rowMetricTotals[this.metricAxis!.value]
                   : data.colGroupMetricTotals[flatKey(selCol)]?.[
                       this.metricAxis!.value
@@ -1004,7 +1017,7 @@ const baseAggregatorTemplates = {
             // render a measured "0.0%" for a value that should stay blank,
             // same as it does in "Actual values" mode.
             const numerator = this.inner.value();
-            if (numerator === null) {
+            if (numerator === null || isAllNullScope(this.inner)) {
               return null;
             }
 
@@ -1017,7 +1030,7 @@ const baseAggregatorTemplates = {
             // null) coerces to `0` under `/`, producing `Infinity`/`NaN`
             // instead of the blank the null/missing-denominator contract
             // above already establishes.
-            if (acc === null) {
+            if (acc === null || isAllNullScope(denominatorAggregator.inner)) {
               return null;
             }
 

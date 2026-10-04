@@ -2247,7 +2247,7 @@ def test_pivot_table_v2_sample_statistics_with_summaries(aggregate_function: str
 @pytest.mark.parametrize("totals", [{"rowTotals": True}, {"colTotals": True}])
 def test_pivot_table_v2_series_only_reducers_with_summaries(
     aggregate_function: str, totals: dict[str, bool]
-):
+) -> None:
     """Series-only reducers must support each row/column summary axis rather
     than raising ``TypeError`` on the DataFrame/``axis`` invocation.
     """
@@ -2275,7 +2275,9 @@ def test_pivot_table_v2_series_only_reducers_with_summaries(
     "aggregate_function",
     ["Sample Variance", "Sample Standard Deviation"],
 )
-def test_pivot_table_v2_sample_statistics_sparse_summaries(aggregate_function: str):
+def test_pivot_table_v2_sample_statistics_sparse_summaries(
+    aggregate_function: str,
+) -> None:
     """With one observation per row but two physical columns, the row summary
     is the single-observation 0, not NaN.
     """
