@@ -616,3 +616,46 @@ test('"... as Fraction of Total" stays scoped to the metric when a category valu
     5,
   );
 });
+
+test('an empty-string category does not share a denominator key with the collapsed scope', () => {
+  const leaves = [
+    { region: '', item: 'A', value: 10 },
+    { region: '', item: 'B', value: 20 },
+    { region: 'X', item: 'A', value: 30 },
+  ] as unknown as PivotRecord[];
+  const pivotData = new PivotData(
+    {
+      data: leaves,
+      rows: ['item'],
+      cols: ['region'],
+      vals: ['value'],
+      aggregateFunction: 'Sum as Fraction of Columns',
+    },
+    {},
+  );
+
+  expect(pivotData.getAggregator(['A'], ['']).value()).toBeCloseTo(10 / 30, 5);
+  expect(pivotData.getAggregator(['B'], ['']).value()).toBeCloseTo(20 / 30, 5);
+});
+
+test('value sorting keeps a sort key for rows whose mixed-metric total renders blank', () => {
+  const leaves = [
+    { color: 'blue', Metric: 'm1', value: 100, __metricKey: 'Metric' },
+    { color: 'blue', Metric: 'm2', value: 250, __metricKey: 'Metric' },
+    { color: 'red', Metric: 'm1', value: 10, __metricKey: 'Metric' },
+    { color: 'red', Metric: 'm2', value: 50, __metricKey: 'Metric' },
+  ] as unknown as PivotRecord[];
+  const pivotData = new PivotData(
+    {
+      data: leaves,
+      rows: ['color'],
+      cols: ['Metric'],
+      vals: ['value'],
+      rowOrder: 'value_a_to_z',
+    },
+    {},
+  );
+
+  expect(pivotData.getAggregator(['blue'], []).value()).toBeNull();
+  expect(pivotData.getRowKeys()).toEqual([['red'], ['blue']]);
+});

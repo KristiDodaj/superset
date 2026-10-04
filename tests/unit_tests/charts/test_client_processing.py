@@ -2234,6 +2234,76 @@ def test_pivot_table_v2_sample_statistics_with_summaries(aggregate_function: str
     assert not pivoted.empty
 
 
+@pytest.mark.parametrize(
+    "aggregate_function",
+    [
+        "Count",
+        "Count Unique Values",
+        "List Unique Values",
+        "First",
+        "Last",
+    ],
+)
+@pytest.mark.parametrize("totals", [{"rowTotals": True}, {"colTotals": True}])
+def test_pivot_table_v2_series_only_reducers_with_summaries(
+    aggregate_function: str, totals: dict[str, bool]
+):
+    """Series-only reducers must support each row/column summary axis rather
+    than raising ``TypeError`` on the DataFrame/``axis`` invocation.
+    """
+    df = pd.DataFrame(
+        {
+            "nation": ["US", "US", "FR", "FR"],
+            "gender": ["boy", "girl", "boy", "girl"],
+            "SUM(num)": [10, 20, 30, 50],
+        }
+    )
+    form_data = {
+        "groupbyRows": ["nation"],
+        "groupbyColumns": ["gender"],
+        "metrics": ["SUM(num)"],
+        "aggregateFunction": aggregate_function,
+        **totals,
+    }
+
+    pivoted = pivot_table_v2(df, form_data, apply_number_format=False)
+
+    assert not pivoted.empty
+
+
+@pytest.mark.parametrize(
+    "aggregate_function",
+    ["Sample Variance", "Sample Standard Deviation"],
+)
+def test_pivot_table_v2_sample_statistics_sparse_summaries(aggregate_function: str):
+    """With one observation per row but two physical columns, the row summary
+    is the single-observation 0, not NaN.
+    """
+    df = pd.DataFrame(
+        {
+            "nation": ["US", "FR"],
+            "gender": ["boy", "girl"],
+            "SUM(num)": [10, 20],
+        }
+    )
+    form_data = {
+        "groupbyRows": ["nation"],
+        "groupbyColumns": ["gender"],
+        "metrics": ["SUM(num)"],
+        "aggregateFunction": aggregate_function,
+        "rowTotals": True,
+        "colTotals": True,
+    }
+
+    pivoted = pivot_table_v2(df, form_data, apply_number_format=False)
+
+    summary_columns = [
+        column for column in pivoted.columns if column[1] in ("Subtotal", "")
+    ]
+    assert summary_columns
+    assert (pivoted[summary_columns] == 0).all(axis=None)
+
+
 def test_pivot_table_v2_ignores_stale_show_values_as_under_result_aggregation():
     """A result aggregation hides `showValuesAs` in Explore and always wins
     over it on the chart (`resultFactory ?? fractionType` in utilities.ts);

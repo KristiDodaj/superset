@@ -658,7 +658,7 @@ def pivot_df(  # pylint: disable=too-many-locals, too-many-arguments, too-many-s
                     source, reducer = collapse(block)
                     subtotal = _reduce(source, reducer, axis=1)
                 else:
-                    subtotal = pivot_v2_aggfunc_map[aggfunc](block, axis=1)
+                    subtotal = summarize_frame(aggfunc, block, axis=1)
                 depth = df.columns.nlevels - len(subgroup) - 1
                 total = metric_name if level == 0 else __("Subtotal")
                 subtotal_name = tuple([*subgroup, total, *([""] * depth)])  # noqa: C409
@@ -696,7 +696,7 @@ def pivot_df(  # pylint: disable=too-many-locals, too-many-arguments, too-many-s
                         lambda series: _reduce(series, collapse(series.to_frame())[1])
                     )
                 else:
-                    subtotal = pivot_v2_aggfunc_map[aggfunc](subtotal_values, axis=0)
+                    subtotal = summarize_frame(aggfunc, subtotal_values, axis=0)
                 depth = groups.nlevels - len(subgroup) - 1
                 total = metric_name if level == 0 else __("Subtotal")
                 subtotal.name = tuple([*subgroup, total, *([""] * depth)])  # noqa: C409
@@ -824,7 +824,10 @@ def _sample_dispersion(
     if isinstance(data, pd.DataFrame):
         axis = 0 if axis is None else axis
         result = getattr(data, method)(axis=axis)
-        return result.fillna(0) if data.shape[axis] <= 1 else result
+        # A scope with exactly one non-null observation has a defined spread of
+        # 0 (as for a single-cell aggregation); count observations per scope so
+        # sparse pivots, where physical columns outnumber observations, agree.
+        return result.mask(data.count(axis=axis) == 1, 0)
     return getattr(data, method)() if len(data) > 1 else 0
 
 
@@ -840,6 +843,40 @@ def sample_standard_deviation(
 ) -> Any:
     """Sample standard deviation (ddof=1), 0 for fewer than two observations."""
     return _sample_dispersion(data, "std", axis)
+
+
+def _first_value(series: pd.Series) -> Any:
+    """First element of a series, NaN when empty."""
+    return series.iloc[0] if len(series) else np.nan
+
+
+def _last_value(series: pd.Series) -> Any:
+    """Last element of a series, NaN when empty."""
+    return series.iloc[-1] if len(series) else np.nan
+
+
+# Series-only reducers need an explicit per-row/column application when
+# summarizing a DataFrame along an axis, since they take no ``axis`` argument.
+_SERIES_ONLY_SUMMARY_REDUCERS: dict[str, Callable[[pd.Series], Any]] = {
+    "Count": pd.Series.count,
+    "Count Unique Values": pd.Series.nunique,
+    "List Unique Values": list_unique_values,
+    "First": _first_value,
+    "Last": _last_value,
+    "Count as Fraction of Total": pd.Series.count,
+    "Count as Fraction of Rows": pd.Series.count,
+    "Count as Fraction of Columns": pd.Series.count,
+}
+
+
+def summarize_frame(aggfunc: str, data: pd.DataFrame, axis: int) -> pd.Series:
+    """Reduce a DataFrame along ``axis`` with the named pivot aggregation."""
+    reducer = _SERIES_ONLY_SUMMARY_REDUCERS.get(aggfunc)
+    if reducer is None:
+        return pivot_v2_aggfunc_map[aggfunc](data, axis=axis)
+    if data.shape[1 - axis] == 0:
+        return pd.Series(dtype=object)
+    return data.apply(reducer, axis=axis)
 
 
 pivot_v2_aggfunc_map = {

@@ -44,6 +44,12 @@ interface NumberFormatOptions {
 interface Aggregator {
   push(record: PivotRecord): void;
   value(): string | number | null;
+  /**
+   * Value used to order keys when sorting by value. Differs from `value()`
+   * only for a slot that renders blank because it mixes metrics: sorting
+   * still needs a key there, independent of what is displayed.
+   */
+  sortValue?(): string | number | null;
   format(x: string | number | null, agg?: Aggregator): string;
   numInputs?: number;
   getCurrencies?(): string[];
@@ -60,9 +66,13 @@ interface SubtotalOptions {
 }
 
 // Given an array of attribute values, convert to a key that
-// can be used in objects.
+// can be used in objects. A non-empty array is prefixed with a marker so
+// that depth zero (`[]`) never collides with a single empty-string category
+// (`['']`), which a bare join would flatten to the same key.
 const flatKey = (attrVals: string[]): string =>
-  attrVals.join(String.fromCharCode(0));
+  attrVals.length === 0
+    ? ''
+    : String.fromCharCode(1) + attrVals.join(String.fromCharCode(0));
 
 const addSeparators = function (
   nStr: string,
@@ -462,6 +472,9 @@ const cellValue =
     },
     value() {
       return this.mixedMetrics ? null : this.val;
+    },
+    sortValue() {
+      return this.val;
     },
     getCurrencies() {
       return Array.from(this.currencySet);
@@ -1305,6 +1318,9 @@ class PivotData {
             value() {
               return mixed ? null : innerValue();
             },
+            sortValue() {
+              return innerValue();
+            },
           };
         }
       : undefined;
@@ -1506,8 +1522,12 @@ class PivotData {
       this.sorted = true;
       const rows = this.props.rows as string[];
       const cols = this.props.cols as string[];
-      const vr = (r: string[], c: string[]) => this.getAggregator(r, c).value();
-      const vc = (c: string[], r: string[]) => this.getAggregator(r, c).value();
+      const sortValueOf = (agg: Aggregator) =>
+        agg.sortValue ? agg.sortValue() : agg.value();
+      const vr = (r: string[], c: string[]) =>
+        sortValueOf(this.getAggregator(r, c));
+      const vc = (c: string[], r: string[]) =>
+        sortValueOf(this.getAggregator(r, c));
       switch (this.props.rowOrder) {
         case 'key_z_to_a':
           this.rowKeys.sort(
